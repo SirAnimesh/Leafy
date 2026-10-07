@@ -1,25 +1,84 @@
 import http from "node:http"
+import { readFile } from "node:fs/promises"
+import { extname, join } from "node:path"
+import { fileURLToPath } from "node:url" 
 import { MongoClient } from "mongodb"
 
 const { MONGODB_URI, MONGODB_DB = "leafy", PORT = 3000 } = process.env
 
+const WEB_DIR = fileURLToPath(new URL("./web/", import.meta.url))
+const MIME = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json; charset=utf-8"
+}
+
 const client = new MongoClient(MONGODB_URI)
 await client.connect()
 const db = client.db(MONGODB_DB)
-console.info(`Connected to MongoDB -> db "${MONGODB_DB}"`)
+const movies = client.db("sample_mflix").collection("movies")
+
+// --- Helpers ----------------------------------------------------------------
+
+const json = (res, status, body) => {
+  res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" })
+  res.end(JSON.stringify(body))
+}
+
+const page = (items, { total = null, hasMore = false, nextCursor = null } = {}) => ({
+  items,
+  count: items.length,
+  total,
+  hasMore,
+  nextCursor
+})
+
+// --- Route Handlers ---------------------------------------------------------
+
+async function getHealth(req, res) {
+  await db.command({ ping: 1 })
+  return json(res, 200, { ok: true }) 
+}
+
+async function getMoviesNaive(req, res) {
+  const items = await movies
+    .find({}, { projection: { title: 1, year: 1, poster: 1, genres: 1 } })
+    .toArray()
+  return json(res, 200, page(items, { total: items.length }))
+}
+
+// --- Routing ----------------------------------------------------------------
+
+const routes = {
+  "GET /api/health": getHealth,
+  "GET /api/movies/naive": getMoviesNaive
+}
+
+async function serveStatic(res, pathname) {
+  const file = join(WEB_DIR, pathname)
+  if (!file.startsWith(WEB_DIR)) return json(res, 403, { error: "Forbidden" })
+
+  const data = await readFile(file)
+  res.writeHead(200, { "Content-Type": MIME[extname(file)] ?? "application/octet-stream" })
+  res.end(data)
+}
+
+// --- Server -----------------------------------------------------------------
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`)
 
-  if (url.pathname === "/api/health") {
-    await db.command({ ping: 1 })
-    res.writeHead(200, { "Content-Type": "application/json" })
-    res.end(JSON.stringify({ ok: true }))
-    return
-  }
+  try {
+    const handler = routes[`${req.method} ${url.pathname}`]
+    if (handler) return await handler(req, res, url)
 
-  res.writeHead(404, { "Content-Type": "application/json" })
-  res.end(JSON.stringify({ error: "Not found" }))
+    await serveStatic(res, url.pathname === "/" ? "/index.html" : url.pathname)
+  } catch (err) {
+    if (err.code === "ENOENT") return json(res, 404, { error: "Not found" })
+    console.error(err)
+    json(res, 500, { error: "Internal Server Error" })
+  }
 })
 
 server.listen(PORT, () => console.info(`Listening on http://localhost:${PORT}`))
