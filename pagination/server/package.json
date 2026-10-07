@@ -1,0 +1,12 @@
+{
+  "name": "leafy-pagination-server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --env-file=.env server.js",
+    "dev": "node --watch --env-file=.env server.js"
+  },
+  "dependencies": {
+    "mongodb": "^7.7.0"
+  }
+}
