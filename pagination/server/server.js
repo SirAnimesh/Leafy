@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises"
 import { extname, join } from "node:path"
 import { fileURLToPath } from "node:url" 
 import { MongoClient } from "mongodb"
+import { PAGE_SIZE } from "../web/config.js"
 
 const { MONGODB_URI, MONGODB_DB = "leafy", PORT = 3000 } = process.env
 
@@ -18,6 +19,7 @@ const client = new MongoClient(MONGODB_URI)
 await client.connect()
 const db = client.db(MONGODB_DB)
 const movies = client.db("sample_mflix").collection("movies")
+const MOVIE_LIST_PROJECTION = { title: 1, year: 1, poster: 1, genres: 1 }
 
 // --- Helpers ----------------------------------------------------------------
 
@@ -26,7 +28,7 @@ const json = (res, status, body) => {
   res.end(JSON.stringify(body))
 }
 
-const page = (items, { total = null, hasMore = false, nextCursor = null } = {}) => ({
+const paginate = (items, { total = null, hasMore = false, nextCursor = null } = {}) => ({
   items,
   count: items.length,
   total,
@@ -43,16 +45,40 @@ async function getHealth(req, res) {
 
 async function getMoviesNaive(req, res) {
   const items = await movies
-    .find({}, { projection: { title: 1, year: 1, poster: 1, genres: 1 } })
+    .find({}, { projection: MOVIE_LIST_PROJECTION })
     .toArray()
-  return json(res, 200, page(items, { total: items.length }))
+  return json(res, 200, paginate(items, { total: items.length }))
+}
+
+async function getMoviesOffset(req, res, url) {
+  const pageNum = Math.max(1, Number(url.searchParams.get("page") ?? 1))
+
+  // Limit = give me these many documents
+  const MAX_LIMIT = 100
+  const limit = Math.min(MAX_LIMIT, Math.max(1, Number(url.searchParams.get("limit") ?? PAGE_SIZE)))
+  // Skip = ignore this many from the top
+  // Database server still has to walk every skipped document so skipping isn't free!
+  const skip = (pageNum - 1) * limit
+
+  const [items, total] = await Promise.all([
+    movies
+      .find({}, { projection: MOVIE_LIST_PROJECTION })
+      .sort({ _id: 1 })
+      .skip(skip)
+      .limit(limit)
+      .toArray(),
+    movies.countDocuments({})
+  ])
+
+  return json(res, 200, paginate(items, { total, hasMore: skip + items.length < total }))
 }
 
 // --- Routing ----------------------------------------------------------------
 
 const routes = {
   "GET /api/health": getHealth,
-  "GET /api/movies/naive": getMoviesNaive
+  "GET /api/movies/naive": getMoviesNaive,
+  "GET /api/movies/offset": getMoviesOffset
 }
 
 async function serveStatic(res, pathname) {
