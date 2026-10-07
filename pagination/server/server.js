@@ -6,7 +6,7 @@ import { MongoClient } from "mongodb"
 
 const { MONGODB_URI, MONGODB_DB = "leafy", PORT = 3000 } = process.env
 
-const WEB_DIR = fileURLToPath(new URL("./web/", import.meta.url))
+const WEB_DIR = fileURLToPath(new URL("../web/", import.meta.url))
 const MIME = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",

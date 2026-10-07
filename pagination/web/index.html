@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Pagination • Naive</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <header>
+      <h1>Movies <small>- client-side slicing</small></h1>
+      <p class="status">
+        <span id="status">Loading...</span>
+        <span id="metrics"></span>
+      </p>
+    </header>
+
+    <main id="grid" class="grid" aria-live="polite"></main>
+
+    <footer class="pager">
+      <button id="prev" type="button">Prev</button>
+      <span id="page-indicator">1</span>
+      <button id="next" type="button">Next</button>
+    </footer>
+
+    <template id="card">
+      <article class="card">
+        <img class="poster" loading="lazy" alt="">
+        <div class="meta">
+          <h2 class="title"></h2>
+          <p class="year"></p>
+        </div>
+      </article>
+    </template>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
