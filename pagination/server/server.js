@@ -24,7 +24,11 @@ const MOVIE_LIST_PROJECTION = { title: 1, year: 1, poster: 1, genres: 1 }
 // --- Helpers ----------------------------------------------------------------
 
 const json = (res, status, body) => {
-  res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" })
+  const payload = JSON.stringify(body)
+  res.writeHead(status, { 
+    "Content-Type": "application/json; charset=utf-8",
+    "Content-Length": Buffer.byteLength(payload)
+  })
   res.end(JSON.stringify(body))
 }
 

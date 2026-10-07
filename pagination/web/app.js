@@ -1,21 +1,88 @@
-import { fetchNaive } from "./api.js"
+import { fetchNaive, fetchOffset } from "./api.js"
+import { PAGE_SIZE } from "./config.js"
 
-const PAGE_SIZE = 24
+// --- Strategies -------------------------------------------------------------
+//
+//  Each strategy exposes: label and load(page) -> { data, bytes, ms }
+//  where data is of the shape { items, count, total, hasMore, nextCursor }
+
+// Client-side slicing, database returns a full collection scan
+function naiveStrategy() {
+  let all = null
+
+  async function load(page) {
+    let bytes = 0
+    let ms = 0
+    if (!all) {
+      const response = await fetchNaive()
+      all = response.data.items
+      bytes = response.bytes
+      ms = response.ms
+    }
+
+    const start = (page - 1) * PAGE_SIZE
+    const items = all.slice(start, start + PAGE_SIZE)
+
+    return {
+      data: {
+        items,
+        count: items.length,
+        total: all.length,
+        hasMore: start + PAGE_SIZE < all.length,
+        nextCursor: null
+      },
+      bytes,
+      ms
+    }
+  }
+
+  return {
+    label: "Naive - fetch all, slice locally",
+    load
+  }
+}
+
+const strategies = {
+  naive: naiveStrategy(),
+  offset: {
+    label: "Offset - skip + limit",
+    load: page => fetchOffset(page)
+  }
+}
+
+// --- DOM --------------------------------------------------------------------
 
 const elements = {
   grid: document.querySelector("#grid"),
-  template: document.querySelector("#card"),
-  status: document.querySelector("#status"),
+  indicator: document.querySelector("#page-indicator"),
   metrics: document.querySelector("#metrics"),
-  prev: document.querySelector("#prev"),
   next: document.querySelector("#next"),
-  indicator: document.querySelector("#page-indicator")
+  prev: document.querySelector("#prev"),
+  status: document.querySelector("#status"),
+  strategy: document.querySelector("#strategy"),
+  template: document.querySelector("#card"),
 }
 
 const state = {
-  items: [],
+  key: "offset",
   page: 1,
-  pageSize: PAGE_SIZE
+  data: {
+    items: [],
+    total: null,
+    hasMore: false
+  }
+}
+
+// --- Rendering -------------------------------------------------------------
+
+function formatBytes(bytes) {
+  if (bytes >= 1_048_576) {
+    return `${(bytes / 1_048_576).toFixed(2)} MB`
+  }
+  if (bytes >= 1_024) {
+    return `${(bytes / 1_024).toFixed(1)} KB`
+  }
+  return `${bytes} B`
 }
 
 function renderCard(movie) {
@@ -28,41 +95,53 @@ function renderCard(movie) {
   return node
 }
 
-function totalPages() {
-  return Math.max(1, Math.ceil(state.items.length / state.pageSize))
-}
-
 function render() {
-  const pages = totalPages()
+  const { items, total, hasMore } = state.data
+  elements.grid.replaceChildren(...items.map(renderCard))
+  
+  const pages = total != null ? Math.ceil(total / PAGE_SIZE) : "?"
+
   const start = (state.page - 1) * state.pageSize
-  const slice = state.items.slice(start, start + state.pageSize)
-
-  elements.grid.replaceChildren(...slice.map(renderCard))
-  elements.status.textContent = `${state.items.length} movies in memory`
+  elements.status.textContent = total != null ? `${total} movie` : `${state.data.count} movies` 
   elements.indicator.textContent = `${state.page} / ${pages}`
-  elements.prev.disabled = state.page === 1
-  elements.next.disable = state.page >= pages
+  elements.prev.disabled = state.page <= 1
+  elements.next.disable = !hasMore
 }
 
-elements.prev.addEventListener("click", () => {
-  if (state.page > 1) {
-    state.page -= 1
-    render()
-  }
-})
+// --- Navigation -------------------------------------------------------------
 
-elements.next.addEventListener("click", () => {
-  if (state.page < totalPages()) {
-    state.page += 1
-    render()
-  }
-})
+async function go(page) {
+  if (page < 1) return
+  state.page = page
+  elements.status.textContent = "Loading..."
 
-async function init() {
-  const { data, bytes, ms } = await fetchNaive()
-  state.items = data.items
-  render()
-  elements.metrics.textContent = `${(bytes / (1024 * 1024)).toFixed(2)} MB • ${ms.toFixed(0)} ms • 1 request`
+  try {
+    const { data, bytes, ms } = await strategies[state.key].load(page)
+    state.data = data
+    render()
+    elements.metrics.textContent = `${formatBytes(bytes)} • ${ms.toFixed(0)} ms`
+  } catch (err) {
+    elements.status.textContent = `Error: ${err.message}`
+  }
 }
 
-init()
+// --- Interactivity ----------------------------------------------------------
+
+elements.strategy.replaceChildren(
+  ...Object.entries(strategies).map(([key, s]) => {
+    const option = document.createElement("option")
+    option.value = key
+    option.textContent = s.label
+    return option
+  })
+)
+elements.strategy.value = state.key
+
+elements.prev.addEventListener("click", () => go(state.page - 1))
+elements.next.addEventListener("click", () => go(state.page + 1))
+elements.strategy.addEventListener("change", () => {
+  state.key = elements.strategy.value
+  go(1)
+})
+
+go(1)

@@ -1,3 +1,5 @@
+import { PAGE_SIZE } from "./config.js"
+
 async function get(path) {
   const started = performance.now()
   const res = await fetch(path)
@@ -11,3 +13,4 @@ async function get(path) {
 }
 
 export const fetchNaive = () => get("/api/movies/naive")
+export const fetchOffset = page => get(`/api/movies/offset?page=${page}&limit=${PAGE_SIZE}`)

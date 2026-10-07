@@ -107,3 +107,27 @@ button:disabled {
   font-variant-numeric: tabular-nums;
   color: #aaa;
 }
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.controls label {
+  font-size: .8rem;
+  color: #888;
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+}
+
+select {
+  background: #222;
+  color: #eee;
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: .35rem .5rem;
+  font: inherit;
+}

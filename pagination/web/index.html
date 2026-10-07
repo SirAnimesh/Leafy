@@ -8,11 +8,14 @@
   </head>
   <body>
     <header>
-      <h1>Movies <small>- client-side slicing</small></h1>
-      <p class="status">
-        <span id="status">Loading...</span>
-        <span id="metrics"></span>
-      </p>
+      <h1>Movies <small>- Pagination Strategies</small></h1>
+      <div class="controls">
+        <label>Strategy <select id="strategy"></select></label>
+        <p class="status">
+          <span id="status">Loading...</span>
+          <span id="metrics"></span>
+        </p>
+      </div>
     </header>
 
     <main id="grid" class="grid" aria-live="polite"></main>
