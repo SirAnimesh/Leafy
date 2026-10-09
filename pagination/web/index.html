@@ -11,11 +11,15 @@
       <h1>Movies <small>- Pagination Strategies</small></h1>
       <div class="controls">
         <label>Strategy <select id="strategy"></select></label>
-        <p class="status">
-          <span id="status">Loading...</span>
-          <span id="metrics"></span>
-        </p>
+        <button id="insert" type="button">+ Insert movie</button>
+        <button id="reset" type="button">Reset demo</button>
       </div>
+      <p class="hint">Demo: view page 1 → “Insert movie” → “Next”. A card from page 1 reappears.</p>
+      <p class="status">
+        <span id="status">Loading...</span>
+        <span id="metrics"></span>
+        <span id="dupes"></span>
+      </p>
     </header>
 
     <main id="grid" class="grid" aria-live="polite"></main>

@@ -1,4 +1,4 @@
-import { fetchNaive, fetchOffset } from "./api.js"
+import { fetchNaive, fetchOffset, insertDemoMovie, resetDemoMovies } from "./api.js"
 import { PAGE_SIZE } from "./config.js"
 
 // --- Strategies -------------------------------------------------------------
@@ -38,7 +38,8 @@ function naiveStrategy() {
 
   return {
     label: "Naive - fetch all, slice locally",
-    load
+    load,
+    reset: () => { all = null }
   }
 }
 
@@ -46,18 +47,22 @@ const strategies = {
   naive: naiveStrategy(),
   offset: {
     label: "Offset - skip + limit",
-    load: page => fetchOffset(page)
+    load: page => fetchOffset(page),
+    reset: () => {}
   }
 }
 
 // --- DOM --------------------------------------------------------------------
 
 const elements = {
+  dupes: document.querySelector("#dupes"),
   grid: document.querySelector("#grid"),
   indicator: document.querySelector("#page-indicator"),
+  insert: document.querySelector("#insert"),
   metrics: document.querySelector("#metrics"),
   next: document.querySelector("#next"),
   prev: document.querySelector("#prev"),
+  reset: document.querySelector("#reset"),
   status: document.querySelector("#status"),
   strategy: document.querySelector("#strategy"),
   template: document.querySelector("#card"),
@@ -73,6 +78,9 @@ const state = {
   }
 }
 
+const seen = new Map()  // ids already rendered -- detects duplicates
+let dupes = 0
+
 // --- Rendering -------------------------------------------------------------
 
 function formatBytes(bytes) {
@@ -85,42 +93,71 @@ function formatBytes(bytes) {
   return `${bytes} B`
 }
 
-function renderCard(movie) {
+function renderCard(movie, page) {
   const node = elements.template.content.cloneNode(true)
   const img = node.querySelector(".poster")
   img.src = movie.poster ?? ""
   img.alt = movie.title ?? ""
   node.querySelector(".title").textContent = movie.title ?? "Untitled"
   node.querySelector(".year").textContent = movie.year ?? ""
+
+  const card = node.querySelector(".card")
+  if (movie.demo) {
+    const b = document.createElement("span")
+    b.className = "badge"
+    b.textContent = "new"
+    card.append(b)
+  }
+
+  const firstSeen = seen.get(movie._id)
+  if (firstSeen === undefined) {
+    seen.set(movie._id, page)
+  } else if (firstSeen !== page) {
+    dupes += 1
+    card.classList.add("duplicate")
+  }
+
   return node
 }
 
-function render() {
+function render(page) {
   const { items, total, hasMore } = state.data
-  elements.grid.replaceChildren(...items.map(renderCard))
+  dupes = 0
+
+  elements.grid.replaceChildren(...items.map(item => renderCard(item, page)))
   
   const pages = total != null ? Math.ceil(total / PAGE_SIZE) : "?"
 
-  const start = (state.page - 1) * state.pageSize
-  elements.status.textContent = total != null ? `${total} movie` : `${state.data.count} movies` 
-  elements.indicator.textContent = `${state.page} / ${pages}`
-  elements.prev.disabled = state.page <= 1
-  elements.next.disable = !hasMore
+  elements.status.textContent = total != null ? `${total} movies` : `${state.data.count} movies` 
+  elements.indicator.textContent = `${page} / ${pages}`
+  elements.prev.disabled = page <= 1
+  elements.next.disabled = !hasMore
+  elements.dupes.textContent = dupes ? `⚠ ${dupes} duplicate(s)` : ""
 }
 
 // --- Navigation -------------------------------------------------------------
 
+// Rapid switching between pages could render stale data if a slow earlier response
+// lands after a newer one. Request token prevents this problem.
+let requestToken = 0
+
 async function go(page) {
   if (page < 1) return
+
+  const token = ++requestToken
+  if (page === 1) seen.clear()
+  
   state.page = page
   elements.status.textContent = "Loading..."
 
   try {
     const { data, bytes, ms } = await strategies[state.key].load(page)
+    if (token !== requestToken) return
     state.data = data
-    render()
+    render(page)
     elements.metrics.textContent = `${formatBytes(bytes)} • ${ms.toFixed(0)} ms`
   } catch (err) {
+    if (token !== requestToken) return
     elements.status.textContent = `Error: ${err.message}`
   }
 }
@@ -142,6 +179,18 @@ elements.next.addEventListener("click", () => go(state.page + 1))
 elements.strategy.addEventListener("change", () => {
   state.key = elements.strategy.value
   go(1)
+})
+
+elements.insert.addEventListener("click", async () => {
+  const response = await insertDemoMovie()
+  elements.metrics.textContent = `inserted "${response.title}" - now click Next`
+})
+
+elements.reset.addEventListener("click", async () => {
+  const response = await resetDemoMovies()
+  strategies[state.key].reset()
+  await go(1)
+  elements.metrics.textContent = `removed ${response.deleted} demo movie(s)`
 })
 
 go(1)

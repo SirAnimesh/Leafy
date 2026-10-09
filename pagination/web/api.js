@@ -14,3 +14,5 @@ async function get(path) {
 
 export const fetchNaive = () => get("/api/movies/naive")
 export const fetchOffset = page => get(`/api/movies/offset?page=${page}&limit=${PAGE_SIZE}`)
+export const insertDemoMovie = () => fetch("/api/movies/insert", { method: "POST" }).then(r => r.json())
+export const resetDemoMovies = () => fetch("/api/movies/reset", { method: "POST" }).then(r => r.json())

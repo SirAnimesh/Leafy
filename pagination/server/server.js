@@ -19,7 +19,7 @@ const client = new MongoClient(MONGODB_URI)
 await client.connect()
 const db = client.db(MONGODB_DB)
 const movies = client.db("sample_mflix").collection("movies")
-const MOVIE_LIST_PROJECTION = { title: 1, year: 1, poster: 1, genres: 1 }
+const MOVIE_LIST_PROJECTION = { title: 1, year: 1, poster: 1, genres: 1, demo: 1 }
 
 // --- Helpers ----------------------------------------------------------------
 
@@ -29,7 +29,7 @@ const json = (res, status, body) => {
     "Content-Type": "application/json; charset=utf-8",
     "Content-Length": Buffer.byteLength(payload)
   })
-  res.end(JSON.stringify(body))
+  res.end(payload)
 }
 
 const paginate = (items, { total = null, hasMore = false, nextCursor = null } = {}) => ({
@@ -67,7 +67,7 @@ async function getMoviesOffset(req, res, url) {
   const [items, total] = await Promise.all([
     movies
       .find({}, { projection: MOVIE_LIST_PROJECTION })
-      .sort({ _id: 1 })
+      .sort({ _id: -1 })
       .skip(skip)
       .limit(limit)
       .toArray(),
@@ -77,12 +77,32 @@ async function getMoviesOffset(req, res, url) {
   return json(res, 200, paginate(items, { total, hasMore: skip + items.length < total }))
 }
 
+async function insertDemoMovie(req, res) {
+  const doc = {
+    title: `Demo Movie ${new Date().toISOString()}`,
+    year: new Date().getFullYear(),
+    genres: ["Demo"],
+    demo: true,
+    createdAt: new Date()
+  }
+
+  const { insertedId } = await movies.insertOne(doc)
+  return json(res, 201, { id: insertedId, title: doc.title })
+}
+
+async function resetDemoMovies(req, res) {
+  const { deletedCount } = await movies.deleteMany({ demo: true })
+  return json(res, 200, { deleted: deletedCount })
+}
+
 // --- Routing ----------------------------------------------------------------
 
 const routes = {
   "GET /api/health": getHealth,
   "GET /api/movies/naive": getMoviesNaive,
-  "GET /api/movies/offset": getMoviesOffset
+  "GET /api/movies/offset": getMoviesOffset,
+  "POST /api/movies/insert": insertDemoMovie,
+  "POST /api/movies/reset": resetDemoMovies
 }
 
 async function serveStatic(res, pathname) {

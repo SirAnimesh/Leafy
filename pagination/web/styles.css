@@ -51,6 +51,11 @@ h1 small {
   background: #1c1c1c;
   border-radius: 8px;
   overflow: hidden;
+  position: relative;
+}
+
+.card.duplicate {
+  outline: 2px solid #e5484d;
 }
 
 .poster {
@@ -130,4 +135,26 @@ select {
   border-radius: 6px;
   padding: .35rem .5rem;
   font: inherit;
+}
+
+.badge {
+  position: absolute;
+  top: .4rem;
+  left: .4rem;
+  background: #e5484d;
+  color: #fff;
+  font-size: .6rem;
+  padding: .1rem .3rem;
+  border-radius: 4px;
+}
+
+.hint {
+  font-size: .75rem;
+  color: #777;
+  margin: .5rem 0 0;
+}
+
+#dupes {
+  color: #e5484d;
+  font-weight: 600;
 }
