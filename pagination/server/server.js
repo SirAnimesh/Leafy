@@ -2,7 +2,7 @@ import http from "node:http"
 import { readFile } from "node:fs/promises"
 import { extname, join } from "node:path"
 import { fileURLToPath } from "node:url" 
-import { MongoClient } from "mongodb"
+import { MongoClient, ObjectId } from "mongodb"
 import { PAGE_SIZE } from "../web/config.js"
 
 const { MONGODB_URI, MONGODB_DB = "leafy", PORT = 3000 } = process.env
@@ -50,6 +50,7 @@ async function getHealth(req, res) {
 async function getMoviesNaive(req, res) {
   const items = await movies
     .find({}, { projection: MOVIE_LIST_PROJECTION })
+    .sort({ _id: -1 })
     .toArray()
   return json(res, 200, paginate(items, { total: items.length }))
 }
@@ -77,6 +78,32 @@ async function getMoviesOffset(req, res, url) {
   return json(res, 200, paginate(items, { total, hasMore: skip + items.length < total }))
 }
 
+async function getMoviesCursor(req, res, url) {
+  const MAX_LIMIT = 100
+  const limit = Math.min(MAX_LIMIT, Math.max(1, Number(url.searchParams.get("limit") ?? PAGE_SIZE)))
+  const after = url.searchParams.get("after")
+
+  // Never trust the client
+  if (after && !ObjectId.isValid(after)) {
+    return json(res, 400, { error: "Invalid cursor" })
+  }
+
+  const filter = after ? { _id: { $lt: new ObjectId(after) } } : {}
+
+  const items = await movies
+    .find(filter, { projection: MOVIE_LIST_PROJECTION })
+    .sort({ _id: -1 })
+    .limit(limit + 1)   // grab one extra to detect if more exist
+    .toArray()
+  
+  const hasMore = items.length > limit
+  if (hasMore) items.pop()  // discard the extra item
+
+  const nextCursor = items.length ? items.at(-1)._id.toString() : null
+
+  return json(res, 200, paginate(items, { hasMore, nextCursor }))
+}
+
 async function insertDemoMovie(req, res) {
   const doc = {
     title: `Demo Movie ${new Date().toISOString()}`,
@@ -101,6 +128,7 @@ const routes = {
   "GET /api/health": getHealth,
   "GET /api/movies/naive": getMoviesNaive,
   "GET /api/movies/offset": getMoviesOffset,
+  "GET /api/movies/cursor": getMoviesCursor,
   "POST /api/movies/insert": insertDemoMovie,
   "POST /api/movies/reset": resetDemoMovies
 }

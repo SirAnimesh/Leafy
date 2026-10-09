@@ -1,4 +1,4 @@
-import { fetchNaive, fetchOffset, insertDemoMovie, resetDemoMovies } from "./api.js"
+import { fetchNaive, fetchOffset, fetchCursor, insertDemoMovie, resetDemoMovies } from "./api.js"
 import { PAGE_SIZE } from "./config.js"
 
 // --- Strategies -------------------------------------------------------------
@@ -10,7 +10,8 @@ import { PAGE_SIZE } from "./config.js"
 function naiveStrategy() {
   let all = null
 
-  async function load(page) {
+  async function load(cursor) {
+    const page = Number(cursor ?? 1)
     let bytes = 0
     let ms = 0
     if (!all) {
@@ -22,14 +23,15 @@ function naiveStrategy() {
 
     const start = (page - 1) * PAGE_SIZE
     const items = all.slice(start, start + PAGE_SIZE)
+    const hasMore = start + PAGE_SIZE < all.length
 
     return {
       data: {
         items,
         count: items.length,
         total: all.length,
-        hasMore: start + PAGE_SIZE < all.length,
-        nextCursor: null
+        hasMore,
+        nextCursor: hasMore ? String(page + 1) : null
       },
       bytes,
       ms
@@ -43,13 +45,35 @@ function naiveStrategy() {
   }
 }
 
-const strategies = {
-  naive: naiveStrategy(),
-  offset: {
+// Offset - skip + limit
+function offsetStrategy() {
+  async function load(cursor) {
+    const page = Number(cursor ?? 1)
+    const result = await fetchOffset(page)
+    result.data.nextCursor = result.data.hasMore ? String(page + 1) : null
+    return result
+  }
+
+  return {
     label: "Offset - skip + limit",
-    load: page => fetchOffset(page),
+    load,
     reset: () => {}
   }
+}
+
+// Cursor
+function cursorStrategy() {
+  return {
+    label: "Cursor - range on _id",
+    load: fetchCursor,
+    reset: () => {}
+  }
+}
+
+const strategies = {
+  naive: naiveStrategy(),
+  offset: offsetStrategy(),
+  cursor: cursorStrategy()
 }
 
 // --- DOM --------------------------------------------------------------------
@@ -70,11 +94,13 @@ const elements = {
 
 const state = {
   key: "offset",
-  page: 1,
+  history: [null],  // opaque cursors; index 0 = first page
+  index: 0,
   data: {
     items: [],
     total: null,
-    hasMore: false
+    hasMore: false,
+    nextCursor: null
   }
 }
 
@@ -93,7 +119,7 @@ function formatBytes(bytes) {
   return `${bytes} B`
 }
 
-function renderCard(movie, page) {
+function renderCard(movie, depth) {
   const node = elements.template.content.cloneNode(true)
   const img = node.querySelector(".poster")
   img.src = movie.poster ?? ""
@@ -111,8 +137,8 @@ function renderCard(movie, page) {
 
   const firstSeen = seen.get(movie._id)
   if (firstSeen === undefined) {
-    seen.set(movie._id, page)
-  } else if (firstSeen !== page) {
+    seen.set(movie._id, depth)
+  } else if (firstSeen !== depth) {
     dupes += 1
     card.classList.add("duplicate")
   }
@@ -120,17 +146,17 @@ function renderCard(movie, page) {
   return node
 }
 
-function render(page) {
+function render() {
   const { items, total, hasMore } = state.data
   dupes = 0
 
-  elements.grid.replaceChildren(...items.map(item => renderCard(item, page)))
+  elements.grid.replaceChildren(...items.map(item => renderCard(item, state.index)))
   
   const pages = total != null ? Math.ceil(total / PAGE_SIZE) : "?"
 
   elements.status.textContent = total != null ? `${total} movies` : `${state.data.count} movies` 
-  elements.indicator.textContent = `${page} / ${pages}`
-  elements.prev.disabled = page <= 1
+  elements.indicator.textContent = total != null ? `${state.index + 1} / ${pages}` : `${state.index + 1}`
+  elements.prev.disabled = state.index === 0
   elements.next.disabled = !hasMore
   elements.dupes.textContent = dupes ? `⚠ ${dupes} duplicate(s)` : ""
 }
@@ -141,26 +167,50 @@ function render(page) {
 // lands after a newer one. Request token prevents this problem.
 let requestToken = 0
 
-async function go(page) {
-  if (page < 1) return
-
+async function loadAt(index) {
   const token = ++requestToken
-  if (page === 1) seen.clear()
+  const cursor = state.history[index]
+  if (index === 0) seen.clear()
   
-  state.page = page
+  state.index = index
   elements.status.textContent = "Loading..."
+  elements.prev.disabled = true
+  elements.next.disabled = true
 
   try {
-    const { data, bytes, ms } = await strategies[state.key].load(page)
+    const { data, bytes, ms } = await strategies[state.key].load(cursor)
     if (token !== requestToken) return
     state.data = data
-    render(page)
+    render()
     elements.metrics.textContent = `${formatBytes(bytes)} • ${ms.toFixed(0)} ms`
   } catch (err) {
     if (token !== requestToken) return
     elements.status.textContent = `Error: ${err.message}`
   }
 }
+
+function next() {
+  const cursor = state.data.nextCursor
+  if (!cursor) return
+
+  state.history = state.history.slice(0, state.index + 1)    // drop any forward history
+  state.history.push(cursor)
+  loadAt(state.index + 1)
+}
+
+function prev() {
+  if (state.index === 0) return
+  loadAt(state.index - 1)
+}
+
+function restart() {
+  state.history = [null]
+  state.index = 0
+  seen.clear()
+  return loadAt(0)
+}
+
+
 
 // --- Interactivity ----------------------------------------------------------
 
@@ -174,11 +224,11 @@ elements.strategy.replaceChildren(
 )
 elements.strategy.value = state.key
 
-elements.prev.addEventListener("click", () => go(state.page - 1))
-elements.next.addEventListener("click", () => go(state.page + 1))
+elements.prev.addEventListener("click", prev)
+elements.next.addEventListener("click", next)
 elements.strategy.addEventListener("change", () => {
   state.key = elements.strategy.value
-  go(1)
+  restart()
 })
 
 elements.insert.addEventListener("click", async () => {
@@ -189,8 +239,8 @@ elements.insert.addEventListener("click", async () => {
 elements.reset.addEventListener("click", async () => {
   const response = await resetDemoMovies()
   strategies[state.key].reset()
-  await go(1)
+  await restart()
   elements.metrics.textContent = `removed ${response.deleted} demo movie(s)`
 })
 
-go(1)
+restart()

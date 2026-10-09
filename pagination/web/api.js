@@ -14,5 +14,10 @@ async function get(path) {
 
 export const fetchNaive = () => get("/api/movies/naive")
 export const fetchOffset = page => get(`/api/movies/offset?page=${page}&limit=${PAGE_SIZE}`)
+export const fetchCursor = (after) => {
+  const params = new URLSearchParams({ limit: PAGE_SIZE })
+  if (after) params.set("after", after)
+  return get(`/api/movies/cursor?${params}`)
+}
 export const insertDemoMovie = () => fetch("/api/movies/insert", { method: "POST" }).then(r => r.json())
 export const resetDemoMovies = () => fetch("/api/movies/reset", { method: "POST" }).then(r => r.json())
