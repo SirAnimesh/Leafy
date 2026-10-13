@@ -3,7 +3,7 @@ import { PAGE_SIZE } from "./config.js"
 
 // --- Strategies -------------------------------------------------------------
 //
-//  Each strategy exposes: label and load(page) -> { data, bytes, ms }
+//  Each strategy exposes: label and load(cursor) -> { data, bytes, ms }
 //  where data is of the shape { items, count, total, hasMore, nextCursor }
 
 // Client-side slicing, database returns a full collection scan
@@ -80,22 +80,27 @@ const strategies = {
 
 const elements = {
   dupes: document.querySelector("#dupes"),
+  end: document.querySelector("#end"),
   grid: document.querySelector("#grid"),
   indicator: document.querySelector("#page-indicator"),
   insert: document.querySelector("#insert"),
   metrics: document.querySelector("#metrics"),
+  mode: document.querySelector("#mode"),
   next: document.querySelector("#next"),
   prev: document.querySelector("#prev"),
   reset: document.querySelector("#reset"),
+  sentinel: document.querySelector("#sentinel"),
   status: document.querySelector("#status"),
   strategy: document.querySelector("#strategy"),
-  template: document.querySelector("#card"),
+  template: document.querySelector("#card")
 }
 
 const state = {
   key: "offset",
+  mode: "paged",
   history: [null],  // opaque cursors; index 0 = first page
   index: 0,
+  cursor: null,     // infinite: cursor for the next fetch
   data: {
     items: [],
     total: null,
@@ -106,6 +111,8 @@ const state = {
 
 const seen = new Map()  // ids already rendered -- detects duplicates
 let dupes = 0
+let loading = false
+const totals = { items: 0, bytes: 0, requests: 0 }
 
 // --- Rendering -------------------------------------------------------------
 
@@ -146,18 +153,19 @@ function renderCard(movie, depth) {
   return node
 }
 
-function render() {
-  const { items, total, hasMore } = state.data
-  dupes = 0
+function renderReadout(bytes, ms) {
+  if (state.mode === "infinite") {
+    elements.status.textContent = `${totals.items} movies loaded`
+    elements.indicator.textContent = `${totals.requests} req`
+    elements.metrics.textContent = `${formatBytes(totals.bytes)} total • last ${ms.toFixed(0)} ms`
+  } else {
+    const { total } = state.data
+    const pages = total != null ? Math.ceil(total / PAGE_SIZE) : "?"
+    elements.status.textContent = total != null ? `${total} movies` : `${state.data.count} movies`
+    elements.indicator.textContent = total != null ? `${state.index + 1} / ${pages}` : `${state.index + 1}`
+    elements.metrics.textContent = `${formatBytes(bytes)} • ${ms.toFixed(0)} ms`
+  }
 
-  elements.grid.replaceChildren(...items.map(item => renderCard(item, state.index)))
-  
-  const pages = total != null ? Math.ceil(total / PAGE_SIZE) : "?"
-
-  elements.status.textContent = total != null ? `${total} movies` : `${state.data.count} movies` 
-  elements.indicator.textContent = total != null ? `${state.index + 1} / ${pages}` : `${state.index + 1}`
-  elements.prev.disabled = state.index === 0
-  elements.next.disabled = !hasMore
   elements.dupes.textContent = dupes ? `⚠ ${dupes} duplicate(s)` : ""
 }
 
@@ -171,7 +179,7 @@ async function loadAt(index) {
   const token = ++requestToken
   const cursor = state.history[index]
   if (index === 0) seen.clear()
-  
+
   state.index = index
   elements.status.textContent = "Loading..."
   elements.prev.disabled = true
@@ -181,8 +189,11 @@ async function loadAt(index) {
     const { data, bytes, ms } = await strategies[state.key].load(cursor)
     if (token !== requestToken) return
     state.data = data
-    render()
-    elements.metrics.textContent = `${formatBytes(bytes)} • ${ms.toFixed(0)} ms`
+    dupes = 0
+    elements.grid.replaceChildren(...data.items.map(item => renderCard(item, state.index)))
+    elements.prev.disabled = state.index === 0
+    elements.next.disabled = !data.hasMore
+    renderReadout(bytes, ms)
   } catch (err) {
     if (token !== requestToken) return
     elements.status.textContent = `Error: ${err.message}`
@@ -203,16 +214,92 @@ function prev() {
   loadAt(state.index - 1)
 }
 
+async function appendNext() {
+  if (loading) return
+  if (state.index > 0 && !state.data.hasMore) return
+
+  loading = true
+  elements.status.textContent = "Loading..."
+
+  try {
+    const { data, bytes, ms } = await strategies[state.key].load(state.cursor)
+    totals.requests += 1
+    totals.bytes += bytes
+    totals.items += data.items.length
+
+    state.data = data
+    state.cursor = data.nextCursor
+    dupes = 0
+    elements.grid.append(...data.items.map(item => renderCard(item, state.index)))
+    state.index += 1
+    elements.end.hidden = data.hasMore
+    renderReadout(bytes, ms)
+  } catch (err) {
+    elements.status.textContent = `Error: ${err.message}`
+  } finally {
+    loading = false
+  }
+}
+
 function restart() {
   state.history = [null]
   state.index = 0
+  state.cursor = null
+  state.data = { items: [], total: null, hasMore: true, nextCursor: null }
   seen.clear()
+  dupes = 0
+  totals.items = 0
+  totals.bytes = 0
+  totals.requests = 0
+  elements.grid.replaceChildren()
+  elements.end.hidden = true
+  elements.dupes.textContent = ""
+
+  if (state.mode === "infinite") {
+    elements.prev.disabled = true
+    elements.next.disabled = true
+    return fill()
+  }
+
   return loadAt(0)
 }
 
+// --- Infinite scroll --------------------------------------------------------
 
+// IntersectionObserver is edge-triggered: it fires when the sentinel crosses into
+// view, not continuously. If a page is shorter than the viewport, the sentinel
+// never leaves view, so no further callback arrives. `fill` is level-triggered:
+// it keeps loading until the sentinel is pushed out of range.
+function sentinelNear() {
+  return elements.sentinel.getBoundingClientRect().top < window.innerHeight + 400
+}
+
+let filling = false
+async function fill() {
+  if (filling) return
+  filling = true
+  try {
+    while (state.mode === "infinite" && state.data.hasMore && sentinelNear()) {
+      const before = state.index
+      await appendNext()
+      if (state.index === before) break   // error or end of data
+    }
+  } finally {
+    filling = false
+  }
+}
+
+const observer = new IntersectionObserver(() => fill(), { rootMargin: "400px" })
+observer.observe(elements.sentinel)
 
 // --- Interactivity ----------------------------------------------------------
+
+elements.mode.value = state.mode
+elements.mode.addEventListener("change", () => {
+  state.mode = elements.mode.value
+  document.body.classList.toggle("infinite", state.mode === "infinite")
+  restart()
+})
 
 elements.strategy.replaceChildren(
   ...Object.entries(strategies).map(([key, s]) => {

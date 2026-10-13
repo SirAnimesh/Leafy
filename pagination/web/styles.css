@@ -158,3 +158,18 @@ select {
   color: #e5484d;
   font-weight: 600;
 }
+
+.sentinel {
+  height: 1px;
+}
+
+body.infinite .pager {
+  display: none;
+}
+
+.end {
+  text-align: center;
+  color: #666;
+  font-size: .8rem;
+  padding: 1rem 0 2rem;
+}

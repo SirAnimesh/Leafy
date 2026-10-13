@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Pagination • Naive</title>
+    <title>Pagination • Strategies</title>
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
@@ -11,6 +11,12 @@
       <h1>Movies <small>- Pagination Strategies</small></h1>
       <div class="controls">
         <label>Strategy <select id="strategy"></select></label>
+        <label>View
+          <select id="mode">
+            <option value="paged">Paged</option>
+            <option value="infinite">Infinite Scroll</option>
+          </select>
+        </label>
         <button id="insert" type="button">+ Insert movie</button>
         <button id="reset" type="button">Reset demo</button>
       </div>
@@ -23,6 +29,9 @@
     </header>
 
     <main id="grid" class="grid" aria-live="polite"></main>
+
+    <div id="sentinel" class="sentinel"></div>
+    <p id="end" class="end" hidden>- end of list -</p>
 
     <footer class="pager">
       <button id="prev" type="button">Prev</button>
