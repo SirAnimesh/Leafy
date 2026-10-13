@@ -15,11 +15,19 @@ body {
 }
 
 header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
   display: flex;
   justify-content: space-between;
   align-items: baseline;
   gap: 1rem;
   flex-wrap: wrap;
+  padding: 1rem 1.5rem;
+  margin: -1rem -1.5rem 0;
+  background: rgba(17, 17, 17, .95);
+  backdrop-filter: blur(6px);
+  border-bottom: 1px solid #262626;
 }
 
 h1 {
